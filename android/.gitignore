@@ -8,3 +8,4 @@ local.properties
 .idea/
 *.iml
 .kotlin/
+app/src/main/assets/espeak-ng-data/

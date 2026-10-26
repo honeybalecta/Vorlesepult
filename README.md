@@ -9,7 +9,7 @@ Android-App, die Texte, PDFs und Word-Dateien vorliest – mit natürlichen Stim
 
 ## Stimmen
 
-Alle Stimmen sind Piper-Stimmen (VITS), ausgeführt mit [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) und [piper-phonemize](https://github.com/csukuangfj/piper-phonemize). Welche Stimmen eingebaut werden, steht in `android/tools/fetch-voices.py`.
+Alle Stimmen sind Piper-Stimmen (VITS), ausgeführt mit [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (mit eingebautem espeak-ng für die Aussprache). Welche Stimmen eingebaut werden, steht in `android/tools/fetch-voices.py`.
 
 | APK | Stimmen |
 |---|---|
@@ -28,7 +28,7 @@ Die komplette Fassung ist rund 800 MB groß, die kompakte rund 240 MB.
 
 Der Workflow `.github/workflows/build-android.yml` baut beide Fassungen bei jedem Push auf `main` (oder von Hand über „Actions“) und hängt sie an ein Release `v<Version>` (Version aus `android/version.txt`).
 
-- Die Sprach-Engine kommt als AAR aus den GitHub-Releases von sherpa-onnx und piper-phonemize.
+- Die Sprach-Engine kommt als AAR aus dem GitHub-Release von sherpa-onnx.
 - Die Stimmen lädt `fetch-voices.py` aus den sherpa-onnx-Releases (MLS von Hugging Face) und legt sie unter `android/app/src/main/assets/voices/` ab.
 - Signiert wird mit dem Schlüssel aus den Repository-Secrets `ANDROID_KEYSTORE_B64` (Keystore als Base64), `ANDROID_KEYSTORE_PASSWORD` und optional `ANDROID_KEY_ALIAS` (Standard: `vorlesepult`). Ohne diese Secrets entsteht ein Testbuild mit Debug-Signatur. Updates lassen sich nur über eine bestehende Installation legen, wenn derselbe Schlüssel benutzt wird – sonst einmal deinstallieren.
 
@@ -38,7 +38,7 @@ Der Workflow `.github/workflows/build-android.yml` baut beide Fassungen bei jede
 - `android/app/src/main/java/de/honeybalecta/vorlesepult/`
   - `MainActivity.kt` – WebView, Dateidialoge, „Öffnen mit“/„Teilen“, Tastatur.
   - `Bridge.kt` – Schnittstelle zur Oberfläche (`VP.*` ↔ `VPApp.*`).
-  - `Engine.kt` – Stimme laden, Text in Phoneme wandeln, Audio erzeugen, Zwischenspeicher.
+  - `Engine.kt` – Stimme laden, Audio erzeugen, Zwischenspeicher, Aussprachedaten bereitstellen.
   - `Player.kt` – Wiedergabe über AudioTrack, Hörfokus.
   - `LocalServer.kt` – liefert die Oberfläche und Importdateien an den WebView.
   - `Store.kt` – Dokument und Einstellungen im App-Speicher.

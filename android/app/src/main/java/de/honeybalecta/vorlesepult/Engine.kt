@@ -3,8 +3,6 @@ package de.honeybalecta.vorlesepult
 import android.content.Context
 import android.util.Log
 import android.util.LruCache
-import com.github.csukuangfj.piper.phonemize.piperPhonemizeInitialize
-import com.github.csukuangfj.piper.phonemize.piperPhonemizeText
 import com.k2fsa.sherpa.onnx.GenerationConfig
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
@@ -12,6 +10,7 @@ import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.min
@@ -29,8 +28,8 @@ class Voice(val json: JSONObject) {
 }
 
 /**
- * Die Sprach-Engine: lädt eine Stimme (sherpa-onnx, VITS/Piper), setzt Text in Phoneme um
- * (piper-phonemize) und erzeugt Audio. Alles läuft auf einem eigenen Arbeits-Thread.
+ * Die Sprach-Engine: lädt eine Stimme (sherpa-onnx, VITS/Piper mit espeak-ng für die Aussprache)
+ * und erzeugt Audio. Alles läuft auf einem eigenen Arbeits-Thread.
  */
 class Engine(private val ctx: Context) {
     companion object {
@@ -47,7 +46,7 @@ class Engine(private val ctx: Context) {
     private var tts: OfflineTts? = null
     @Volatile var current: Voice? = null
         private set
-    private var phonemizerReady = false
+    private var espeakDir: String? = null
     private val threads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
 
     // Fertige Sätze, damit Zurückspringen und Vorausberechnen sofort klingen
@@ -75,14 +74,11 @@ class Engine(private val ctx: Context) {
         if (current?.id == id && tts != null) return v
         tts?.let { runCatching { it.free() } }
         tts = null; current = null
-        if (v.frontend == "piper" && !phonemizerReady) {
-            val r = piperPhonemizeInitialize(ctx)
-            if (r < 0) throw IllegalStateException("Aussprache-Modul konnte nicht starten ($r)")
-            phonemizerReady = true
-        }
+        // Piper-Stimmen brauchen die Aussprachedaten von espeak-ng als echten Ordner im Dateisystem
+        val dataDir = if (v.frontend == "piper") ensureEspeakData() else ""
         val cfg = OfflineTtsConfig(
             model = OfflineTtsModelConfig(
-                vits = OfflineTtsVitsModelConfig(model = "${v.dir}/model.onnx", tokens = "${v.dir}/tokens.txt"),
+                vits = OfflineTtsVitsModelConfig(model = "${v.dir}/model.onnx", tokens = "${v.dir}/tokens.txt", dataDir = dataDir),
                 numThreads = threads, debug = false, provider = "cpu",
             ),
             maxNumSentences = 1,
@@ -92,6 +88,32 @@ class Engine(private val ctx: Context) {
         Log.i(TAG, "Stimme ${v.id} geladen in ${System.currentTimeMillis() - t0} ms, ${t.numSpeakers()} Sprecher, ${t.sampleRate()} Hz")
         tts = t; current = v
         return v
+    }
+
+    /** Kopiert assets/espeak-ng-data einmalig ins App-Verzeichnis und liefert den Pfad. */
+    private fun ensureEspeakData(): String {
+        espeakDir?.let { return it }
+        val target = File(ctx.filesDir, "espeak-ng-data")
+        val marker = File(target, ".vollstaendig-" + ctx.packageManager.getPackageInfo(ctx.packageName, 0).longVersionCode)
+        if (!marker.exists()) {
+            target.deleteRecursively()
+            copyAssetDir("espeak-ng-data", target)
+            marker.writeText("ok")
+        }
+        if (!File(target, "phontab").exists()) throw IllegalStateException("Aussprachedaten (espeak-ng-data) fehlen in der App")
+        espeakDir = target.absolutePath
+        return target.absolutePath
+    }
+
+    private fun copyAssetDir(path: String, dest: File) {
+        val entries = ctx.assets.list(path) ?: emptyArray()
+        if (entries.isEmpty()) {
+            dest.parentFile?.mkdirs()
+            ctx.assets.open(path).use { inp -> dest.outputStream().use { inp.copyTo(it, 64 * 1024) } }
+        } else {
+            dest.mkdirs()
+            for (e in entries) copyAssetDir("$path/$e", File(dest, e))
+        }
     }
 
     /** Alles Laufende abbrechen (Pause, Stopp, Sprung). */
@@ -115,18 +137,8 @@ class Engine(private val ctx: Context) {
         if (clean.isEmpty()) return Audio(FloatArray(0), v.sampleRate)
         val sidOk = sid.coerceIn(0, maxOf(0, t.numSpeakers() - 1))
         val gen = GenerationConfig(sid = sidOk, speed = speed.coerceIn(0.5f, 2.5f))
-        var genText = clean
-        if (v.frontend == "piper") {
-            val res = piperPhonemizeText(clean, v.lang) ?: throw IllegalStateException("Aussprache fehlgeschlagen")
-            val sentences = try {
-                (0 until res.numSentences).map { res.getPhonemes(it) }.filter { it.isNotEmpty() }
-            } finally { res.close() }
-            if (sentences.isEmpty()) return Audio(FloatArray(0), t.sampleRate())
-            gen.phonemeCodepoints = sentences.toTypedArray()
-            genText = ""
-        }
         val t0 = System.currentTimeMillis()
-        val audio = t.generateWithConfigAndCallback(text = genText, config = gen) { _ -> if (cancelled()) 0 else 1 }
+        val audio = t.generateWithConfigAndCallback(text = clean, config = gen) { _ -> if (cancelled()) 0 else 1 }
         if (cancelled()) { Log.i(TAG, "Berechnung abgebrochen"); return null }
         val out = Audio(normalize(audio.samples), audio.sampleRate)
         Log.i(TAG, "Satz (${clean.length} Zeichen) in ${System.currentTimeMillis() - t0} ms, ${"%.1f".format(out.seconds)} s Audio")

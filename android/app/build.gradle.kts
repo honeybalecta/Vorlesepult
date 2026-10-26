@@ -58,8 +58,8 @@ android {
 kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
 
 dependencies {
-    // Sprach-Engine (sherpa-onnx) und Aussprache (piper-phonemize) als AAR aus den GitHub-Releases, siehe Workflow
-    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))
+    // Sprach-Engine (sherpa-onnx mit eingebautem espeak-ng) als AAR aus dem GitHub-Release, siehe Workflow
+    implementation(files("libs/sherpa-onnx-1.13.8.aar"))
     implementation("androidx.core:core-ktx:1.16.0")
     implementation("androidx.activity:activity-ktx:1.10.1")
 }

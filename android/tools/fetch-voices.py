@@ -6,6 +6,7 @@ Holt die eingebauten Stimmen und JS-Bibliotheken für die Vorlesepult-App und le
 
 Ergebnis:
   assets/voices/<id>/model.onnx, tokens.txt [, model.onnx.json]
+  assets/espeak-ng-data/               (Aussprachedaten für die Piper-Stimmen, de + en)
   assets/www/index.html            (Kopie aus web/)
   assets/www/voices.json           (Katalog für Oberfläche und Engine)
   assets/www/vendor/*.js           (pdf.js, mammoth, JSZip, jsPDF)
@@ -90,6 +91,30 @@ def download(url, dest, retries=3):
     raise RuntimeError(f"Download fehlgeschlagen: {url} ({last})")
 
 
+ESPEAK_KEEP_DICTS = {"de_dict", "en_dict"}
+
+
+def extract_espeak(tar_path, outdir):
+    """Holt die Aussprachedaten (espeak-ng-data) aus einem Piper-Paket – nur deutsche und englische Wörterbücher."""
+    n = 0
+    with tarfile.open(tar_path, "r:bz2") as t:
+        for m in t.getmembers():
+            if not m.isfile() or "/espeak-ng-data/" not in m.name:
+                continue
+            rel = m.name.split("/espeak-ng-data/", 1)[1]
+            base = os.path.basename(rel)
+            if base.endswith("_dict") and base not in ESPEAK_KEEP_DICTS:
+                continue
+            dest = os.path.join(outdir, rel)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with t.extractfile(m) as src, open(dest, "wb") as dst:
+                shutil.copyfileobj(src, dst, 1024 * 1024)
+            n += 1
+    if not os.path.exists(os.path.join(outdir, "phontab")):
+        raise RuntimeError(f"espeak-ng-data fehlt in {tar_path}")
+    return n
+
+
 def extract_pkg(tar_path, outdir):
     """Holt model.onnx, tokens.txt und die Modellbeschreibung aus einem sherpa-onnx-Paket."""
     os.makedirs(outdir, exist_ok=True)
@@ -158,6 +183,8 @@ def main():
     os.makedirs(vendor, exist_ok=True)
 
     only = set(x for x in a.only.split(",") if x)
+    espeak_dir = os.path.join(a.out, "espeak-ng-data")
+    shutil.rmtree(espeak_dir, ignore_errors=True)
     catalog = []
     total = 0
     for v in VOICES:
@@ -169,6 +196,8 @@ def main():
             if "pkg" in v:
                 tar_path = download(SHERPA + v["pkg"] + ".tar.bz2", os.path.join(a.cache, v["pkg"] + ".tar.bz2"))
                 files = extract_pkg(tar_path, outdir)
+                if v.get("frontend", "piper") == "piper" and not os.path.exists(os.path.join(espeak_dir, "phontab")):
+                    log(f"  Aussprachedaten (espeak-ng-data): {extract_espeak(tar_path, espeak_dir)} Dateien")
             else:
                 os.makedirs(outdir, exist_ok=True)
                 base = v["hf"]
@@ -217,6 +246,8 @@ def main():
 
     if not catalog:
         sys.exit("Keine Stimme eingebaut – Abbruch.")
+    if any(v["frontend"] == "piper" for v in catalog) and not os.path.exists(os.path.join(espeak_dir, "phontab")):
+        sys.exit("Aussprachedaten (espeak-ng-data) fehlen – Abbruch.")
     with open(os.path.join(www, "voices.json"), "w", encoding="utf-8") as f:
         json.dump(catalog, f, ensure_ascii=False, indent=1)
 
