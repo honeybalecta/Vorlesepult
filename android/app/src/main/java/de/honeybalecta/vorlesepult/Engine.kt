@@ -55,8 +55,10 @@ class Engine(private val ctx: Context) {
         override fun sizeOf(key: String, value: Audio) = value.samples.size * 4 + 64
     }
 
-    /** Erhöht sich bei Stopp/Neustart: laufende Berechnungen brechen ab, sofern sie nicht [wanted] liefern. */
-    @Volatile private var cancelToken = 0
+    /** Zähler für Abbrüche: laufende Berechnungen prüfen sie zwischendurch und hören auf, wenn sie sich geändert haben. */
+    @Volatile private var speakGen = 0
+    @Volatile var prefetchGen = 0
+        private set
     @Volatile private var wanted: String? = null
 
     fun voice(id: String): Voice? = voices.firstOrNull { it.id == id }
@@ -92,19 +94,23 @@ class Engine(private val ctx: Context) {
         return v
     }
 
-    /** Alles Laufende abbrechen; [keep] ist der Schlüssel, dessen Berechnung weiterlaufen darf. */
-    fun cancel(keep: String? = null) { wanted = keep; cancelToken++ }
+    /** Alles Laufende abbrechen (Pause, Stopp, Sprung). */
+    fun cancelAll() { wanted = null; speakGen++; prefetchGen++ }
+
+    /** Platz machen für einen Satz, der jetzt gebraucht wird: andere Berechnungen abbrechen, [keep] darf weiterlaufen. */
+    fun cancelForSpeak(keep: String) { wanted = keep; speakGen++; prefetchGen++ }
 
     /**
      * Audio für einen Satz liefern (aus dem Zwischenspeicher oder neu berechnet).
      * Blockierend, auf dem Engine-Thread. Gibt null zurück, wenn die Berechnung abgebrochen wurde.
      */
-    fun synthesize(key: String, voiceId: String, sid: Int, speed: Float, text: String): Audio? {
+    fun synthesize(key: String, voiceId: String, sid: Int, speed: Float, text: String, prefetch: Boolean = false): Audio? {
         cache.get(key)?.let { return it }
         val v = load(voiceId)
         val t = tts ?: return null
-        val my = cancelToken
-        val cancelled = { my != cancelToken && wanted != key }
+        val g1 = speakGen
+        val g2 = prefetchGen
+        val cancelled: () -> Boolean = if (prefetch) ({ g2 != prefetchGen && wanted != key }) else ({ g1 != speakGen && wanted != key })
         val clean = text.trim()
         if (clean.isEmpty()) return Audio(FloatArray(0), v.sampleRate)
         val sidOk = sid.coerceIn(0, maxOf(0, t.numSpeakers() - 1))

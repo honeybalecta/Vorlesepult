@@ -79,9 +79,19 @@ class Bridge(private val act: MainActivity, private val engine: Engine, private 
     fun speak(req: String, voiceId: String, sid: Int, speed: Float, text: String) {
         val my = speakSerial.incrementAndGet()
         val key = engine.cacheKey(voiceId, sid, speed, text)
-        engine.cancel(keep = key)
         player.stop()
         player.focus()
+        val play: (Audio) -> Unit = { audio ->
+            js("VPApp.onSpeakStart(${q(req)}, ${"%.2f".format(java.util.Locale.US, audio.seconds)})")
+            player.play(audio) { ok ->
+                if (my == speakSerial.get()) {
+                    if (ok) js("VPApp.onSpeakDone(${q(req)})") else js("VPApp.onSpeakStopped(${q(req)})")
+                }
+            }
+        }
+        // Schon berechnet (vorausgeladen oder zurückgesprungen): sofort abspielen, ohne auf die Engine zu warten
+        engine.cached(key)?.let { play(it); return }
+        engine.cancelForSpeak(key)
         engine.submit {
             if (my != speakSerial.get()) return@submit
             val audio = try {
@@ -92,12 +102,7 @@ class Bridge(private val act: MainActivity, private val engine: Engine, private 
                 return@submit
             } ?: return@submit
             if (my != speakSerial.get()) return@submit
-            js("VPApp.onSpeakStart(${q(req)}, ${"%.2f".format(java.util.Locale.US, audio.seconds)})")
-            player.play(audio) { ok ->
-                if (my == speakSerial.get()) {
-                    if (ok) js("VPApp.onSpeakDone(${q(req)})") else js("VPApp.onSpeakStopped(${q(req)})")
-                }
-            }
+            play(audio)
         }
     }
 
@@ -106,11 +111,11 @@ class Bridge(private val act: MainActivity, private val engine: Engine, private 
     fun prefetch(voiceId: String, sid: Int, speed: Float, text: String) {
         val key = engine.cacheKey(voiceId, sid, speed, text)
         if (engine.cached(key) != null) return
-        val serial = speakSerial.get()
+        val gen = engine.prefetchGen
         engine.submit {
-            // nur solange kein neuer Satz angefordert wurde; der laufende Satz spielt derweil
-            if (speakSerial.get() != serial) return@submit
-            runCatching { engine.synthesize(key, voiceId, sid, speed, text) }
+            // nur solange nichts dazwischenkam (Pause, Sprung, neuer Satz ohne Vorrat)
+            if (gen != engine.prefetchGen) return@submit
+            runCatching { engine.synthesize(key, voiceId, sid, speed, text, prefetch = true) }
                 .onFailure { Log.w(TAG, "Vorausberechnung fehlgeschlagen", it) }
         }
     }
@@ -119,7 +124,7 @@ class Bridge(private val act: MainActivity, private val engine: Engine, private 
     @JavascriptInterface
     fun stop() {
         speakSerial.incrementAndGet()
-        engine.cancel()
+        engine.cancelAll()
         player.stop()
         player.unfocus()
     }
