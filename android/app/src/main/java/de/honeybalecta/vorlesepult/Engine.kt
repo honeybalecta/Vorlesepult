@@ -81,7 +81,7 @@ class Engine(private val ctx: Context) {
         val cfg = OfflineTtsConfig(
             model = OfflineTtsModelConfig(
                 vits = OfflineTtsVitsModelConfig(model = "${v.dir}/model.onnx", tokens = "${v.dir}/tokens.txt", dataDir = dataDir),
-                numThreads = threads, debug = true, provider = "cpu", // debug: Konfiguration und Modelldaten ins Protokoll (Diagnose)
+                numThreads = threads, debug = false, provider = "cpu",
             ),
             maxNumSentences = 1,
         )
@@ -142,7 +142,8 @@ class Engine(private val ctx: Context) {
         val gen = GenerationConfig(sid = sidOk, speed = speed.coerceIn(0.5f, 2.5f))
         val t0 = System.currentTimeMillis()
         Diagnostics.step(ctx, "Satz erzeugen mit ${v.id} (Sprecher $sidOk, Tempo $speed): ${clean.take(120)}")
-        val audio = t.generateWithConfigAndCallback(text = clean, config = gen) { _ -> if (cancelled()) 0 else 1 }
+        // Rückruf als Java-Klasse (siehe GenerationCallback.java): die JNI-Seite sucht genau invoke(float[]) -> Integer
+        val audio = t.generateWithConfigAndCallback(text = clean, config = gen, callback = GenerationCallback { cancelled() })
         Diagnostics.step(ctx, null)
         if (cancelled()) { Log.i(TAG, "Berechnung abgebrochen"); return null }
         val out = Audio(normalize(audio.samples), audio.sampleRate)
