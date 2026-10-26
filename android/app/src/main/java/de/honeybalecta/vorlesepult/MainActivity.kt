@@ -5,7 +5,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.util.Log
@@ -27,19 +29,22 @@ import androidx.core.view.WindowInsetsCompat
 import org.json.JSONObject
 import java.io.File
 
-/** Ein Fenster mit der Oberfläche; Sprache, Dateien und Speicher erledigen [Bridge], [Engine], [Player]. */
+/** Ein Fenster mit der Oberfläche; Vorlesen, Dateien und Speicher erledigen [Bridge], [Reader], [Engine] in [App]. */
 class MainActivity : ComponentActivity() {
     companion object { private const val TAG = "VP.Main" }
 
     lateinit var web: WebView
         private set
-    private lateinit var server: LocalServer
-    private lateinit var engine: Engine
-    private lateinit var player: Player
+    private val app get() = application as App
     private lateinit var bridge: Bridge
     private val pendingImports = ArrayList<String>() // JavaScript, das nach dem Laden der Seite läuft
     private var pendingSave: Triple<String, String, ByteArray>? = null
     private var keyboardShown = false
+    private var notificationAsked = false
+
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) bridge.js("VPApp.toast(${JSONObject.quote("Ohne Benachrichtigungen fehlt die Steuerung in der Leiste und auf dem Sperrbildschirm – das Vorlesen läuft trotzdem weiter.")})")
+    }
 
     private val picker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         val uri = res.data?.data ?: return@registerForActivityResult
@@ -66,7 +71,6 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Diagnostics.install(applicationContext)
         root = FrameLayout(this)
         root.setBackgroundColor(ContextCompat.getColor(this, R.color.papier))
         setContentView(root)
@@ -80,15 +84,23 @@ class MainActivity : ComponentActivity() {
             WindowInsetsCompat.CONSUMED
         }
 
-        engine = Engine(applicationContext)
-        player = Player(applicationContext) { bridge.js("VPApp.onInterrupted()") }
-        bridge = Bridge(this, engine, player, Store(applicationContext))
-        server = LocalServer(applicationContext).start()
+        bridge = Bridge(this, app)
+        app.reader.addListener(bridge)
         createWebView()
+        // Zurück schließt erst Menüs; sonst geht die App in den Hintergrund – das Vorlesen läuft dort weiter
         onBackPressedDispatcher.addCallback(this) {
             web.evaluateJavascript("window.VPApp && VPApp.onBack()") { r -> if (r != "true") moveTaskToBack(true) }
         }
         handleIntent(intent)
+    }
+
+    /** Ab Android 13 braucht die Wiedergabe-Benachrichtigung (Steuerung in der Leiste) eine Erlaubnis; einmal fragen. */
+    fun ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33 || notificationAsked) return
+        notificationAsked = true
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        runCatching { notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
+            .onFailure { Log.w(TAG, "Berechtigungsdialog", it) }
     }
 
     /** WebView aufbauen; wird auch genutzt, wenn der Darstellungsprozess des WebView gestorben ist. */
@@ -123,7 +135,7 @@ class MainActivity : ComponentActivity() {
                 return true
             }
         }
-        web.loadUrl(server.base + "index.html")
+        web.loadUrl(app.server.base + "index.html")
     }
 
     fun copyToClipboard(text: String) {
@@ -190,7 +202,7 @@ class MainActivity : ComponentActivity() {
                 val dir = File(cacheDir, "import").apply { mkdirs() }
                 val f = File(dir, System.currentTimeMillis().toString() + "-" + name.filter { it.isLetterOrDigit() || it == '.' || it == '-' || it == '_' }.take(80))
                 contentResolver.openInputStream(uri)!!.use { inp -> f.outputStream().use { inp.copyTo(it) } }
-                val url = server.offer(f, mime)
+                val url = app.server.offer(f, mime)
                 runOnUiThread { queueJs("VPApp.importUrl(${JSONObject.quote(url)}, ${JSONObject.quote(name)}, ${JSONObject.quote(mime)})") }
             } catch (e: Exception) {
                 Log.w(TAG, "Import fehlgeschlagen", e)
@@ -242,10 +254,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // Engine, Vorleser und Server gehören zur App und laufen weiter; nur das Fenster verschwindet
+        runCatching { app.reader.removeListener(bridge) }
         runCatching { web.destroy() }
-        runCatching { player.release() }
-        runCatching { engine.release() }
-        runCatching { server.stop() }
         super.onDestroy()
     }
 }

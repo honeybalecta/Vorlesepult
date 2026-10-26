@@ -2,8 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Vorlesen im Hintergrund: Vordergrunddienst für Medienwiedergabe mit Steuerung in der Benachrichtigung -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
+        android:name=".App"
         android:label="Vorlesepult"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
@@ -44,6 +49,10 @@
                 <data android:mimeType="text/*" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".PlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

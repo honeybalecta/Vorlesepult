@@ -8,19 +8,21 @@ import android.util.Log
 import android.webkit.JavascriptInterface
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Verbindung zwischen Oberfläche (JavaScript, Objekt `VP`) und App.
- * Rückrufe laufen über `VPApp.*` in der Seite.
+ * Rückrufe laufen über `VPApp.*` in der Seite. Das Vorlesen selbst erledigt [Reader];
+ * die Seite liefert nur die Satzliste und zeigt den Zustand an.
  */
-class Bridge(private val act: MainActivity, private val engine: Engine, private val player: Player, private val store: Store) {
+class Bridge(private val act: MainActivity, private val app: App) : Reader.Listener {
     companion object { private const val TAG = "VP.Bridge" }
 
+    private val engine get() = app.engine
+    private val reader get() = app.reader
+    private val store get() = app.store
     private val main = Handler(Looper.getMainLooper())
     private var pageReady = false
     private val pending = ArrayList<String>()
-    private val speakSerial = AtomicInteger()
 
     /** JavaScript in der Seite ausführen; vor dem Laden der Seite wird gepuffert. */
     fun js(code: String) = main.post {
@@ -30,6 +32,10 @@ class Bridge(private val act: MainActivity, private val engine: Engine, private 
 
     /** Der WebView wurde neu aufgebaut: Seite gilt wieder als nicht bereit. */
     fun pageGone() = main.post { pageReady = false; pending.clear() }
+
+    // ── Vorleser → Seite ──
+    override fun onReaderChanged(reader: Reader) { js("VPApp.onState(${reader.snapshot()})") }
+    override fun onReaderError(message: String) { js("VPApp.onReaderError(${q(message)})") }
 
     // ── Seite ──
     @JavascriptInterface
@@ -80,71 +86,43 @@ class Bridge(private val act: MainActivity, private val engine: Engine, private 
         }
     }
 
-    /**
-     * Einen Satz vorlesen. Antwortet mit VPApp.onSpeakStart(req), onSpeakDone(req) oder onSpeakError(req, msg).
-     * Ein laufender Satz wird abgebrochen.
-     */
+    // ── Vorlesen (Zustand kommt über VPApp.onState zurück) ──
+    private fun guarded(what: String, block: () -> Unit) {
+        try { block() } catch (e: Throwable) { Log.e(TAG, "$what fehlgeschlagen", e); js("VPApp.onReaderError(${q(e.message ?: e.toString())})") }
+    }
+
+    /** Satzliste (JSON) übernehmen und ab Satz [index] vorlesen. */
     @JavascriptInterface
-    fun speak(req: String, voiceId: String, sid: Int, speed: Float, text: String) {
-        try { speakImpl(req, voiceId, sid, speed, text) } catch (e: Throwable) {
-            Log.e(TAG, "speak fehlgeschlagen", e); js("VPApp.onSpeakError(${q(req)}, ${q(e.toString())})")
-        }
+    fun play(queue: String, index: Int, title: String, version: Int) = guarded("play") {
+        val items = reader.parseQueue(queue)
+        main.post { act.ensureNotificationPermission(); reader.play(items, index, title, version) }
     }
 
-    private fun speakImpl(req: String, voiceId: String, sid: Int, speed: Float, text: String) {
-        val my = speakSerial.incrementAndGet()
-        val key = engine.cacheKey(voiceId, sid, speed, text)
-        player.stop()
-        player.focus()
-        val play: (Audio) -> Unit = { audio ->
-            js("VPApp.onSpeakStart(${q(req)}, ${"%.2f".format(java.util.Locale.US, audio.seconds)})")
-            player.play(audio) { ok ->
-                if (my == speakSerial.get()) {
-                    if (ok) js("VPApp.onSpeakDone(${q(req)})") else js("VPApp.onSpeakStopped(${q(req)})")
-                }
-            }
-        }
-        // Schon berechnet (vorausgeladen oder zurückgesprungen): sofort abspielen, ohne auf die Engine zu warten
-        engine.cached(key)?.let { play(it); return }
-        engine.cancelForSpeak(key)
-        engine.submit {
-            if (my != speakSerial.get()) return@submit
-            val audio = try {
-                engine.synthesize(key, voiceId, sid, speed, text)
-            } catch (e: Throwable) {
-                Log.e(TAG, "Satz konnte nicht erzeugt werden", e)
-                if (my == speakSerial.get()) js("VPApp.onSpeakError(${q(req)}, ${q(e.message ?: e.toString())})")
-                return@submit
-            } ?: return@submit
-            if (my != speakSerial.get()) return@submit
-            play(audio)
-        }
-    }
-
-    /** Einen späteren Satz schon berechnen, damit er ohne Pause folgt. */
+    /** Satzliste übernehmen und Satz [index] markieren, ohne zu lesen. */
     @JavascriptInterface
-    fun prefetch(voiceId: String, sid: Int, speed: Float, text: String) = runCatching { prefetchImpl(voiceId, sid, speed, text) }.onFailure { Log.e(TAG, "prefetch fehlgeschlagen", it) }.let { }
-
-    private fun prefetchImpl(voiceId: String, sid: Int, speed: Float, text: String) {
-        val key = engine.cacheKey(voiceId, sid, speed, text)
-        if (engine.cached(key) != null) return
-        val gen = engine.prefetchGen
-        engine.submit {
-            // nur solange nichts dazwischenkam (Pause, Sprung, neuer Satz ohne Vorrat)
-            if (gen != engine.prefetchGen) return@submit
-            runCatching { engine.synthesize(key, voiceId, sid, speed, text, prefetch = true) }
-                .onFailure { Log.w(TAG, "Vorausberechnung fehlgeschlagen", it) }
-        }
+    fun prepare(queue: String, index: Int, title: String, version: Int) = guarded("prepare") {
+        val items = reader.parseQueue(queue)
+        reader.prepare(items, index, title, version)
     }
 
-    /** Wiedergabe anhalten (Pause/Stopp aus der Oberfläche). */
+    /** Satzliste nach einer Bearbeitung austauschen; [index] ist der gerade gelesene Satz in der neuen Liste. */
     @JavascriptInterface
-    fun stop() {
-        speakSerial.incrementAndGet()
-        runCatching { engine.cancelAll() }
-        runCatching { player.stop() }
-        runCatching { player.unfocus() }.onFailure { Log.w(TAG, "unfocus", it) }
+    fun setQueue(queue: String, index: Int, version: Int) = guarded("setQueue") {
+        val items = reader.parseQueue(queue)
+        reader.setQueue(items, index, version)
     }
+
+    @JavascriptInterface fun resume() = guarded("resume") { main.post { act.ensureNotificationPermission(); reader.resume() } }
+    @JavascriptInterface fun pause() = guarded("pause") { reader.pause() }
+    @JavascriptInterface fun stop() = guarded("stop") { reader.stop() }
+    @JavascriptInterface fun next() = guarded("next") { reader.next() }
+    @JavascriptInterface fun prev() = guarded("prev") { reader.prev() }
+    @JavascriptInterface fun seek(index: Int) = guarded("seek") { reader.seek(index) }
+    @JavascriptInterface fun setVoice(voiceId: String, sid: Int, speed: Float) = guarded("setVoice") { reader.setVoice(voiceId, sid, speed) }
+    @JavascriptInterface fun setTitle(title: String) = guarded("setTitle") { reader.setTitle(title) }
+
+    /** Aktueller Zustand des Vorlesers, z. B. nach dem Neuladen der Seite. */
+    @JavascriptInterface fun state(): String = reader.snapshot().toString()
 
     @JavascriptInterface
     fun keepAwake(on: Boolean) = main.post { act.keepAwake(on) }

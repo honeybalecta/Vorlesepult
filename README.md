@@ -4,6 +4,7 @@ Android-App, die Texte, PDFs und Word-Dateien vorliest – mit natürlichen Stim
 
 - **Öffnen:** PDF, Word (.docx), Text, Markdown, HTML – über den Button, per „Teilen“ aus anderen Apps oder „Öffnen mit“ aus dem Dateimanager.
 - **Vorlesen:** Satz für Satz, der aktuelle Satz ist markiert. Tipp in den Text, und es geht ab dort weiter. Während des Vorlesens lässt sich weiter schreiben.
+- **Im Hintergrund:** Das Vorlesen läuft weiter, wenn die App verlassen oder der Bildschirm gesperrt wird. Pause, Weiter, Satz vor/zurück und Stopp stehen in der Benachrichtigung (von oben herabwischen), auf dem Sperrbildschirm und über Kopfhörertasten bereit. Beim Abziehen der Kopfhörer und bei Anrufen hält die Wiedergabe an.
 - **Bearbeiten:** Überschriften, fett, kursiv, Listen, Zitate.
 - **Exportieren:** Word, PDF, Markdown, HTML, Text – oder als Text teilen.
 
@@ -36,9 +37,12 @@ Der Workflow `.github/workflows/build-android.yml` baut beide Fassungen bei jede
 
 - `web/index.html` – die komplette Oberfläche (Editor, Import, Export, Vorlese-Steuerung).
 - `android/app/src/main/java/de/honeybalecta/vorlesepult/`
-  - `MainActivity.kt` – WebView, Dateidialoge, „Öffnen mit“/„Teilen“, Tastatur.
-  - `Bridge.kt` – Schnittstelle zur Oberfläche (`VP.*` ↔ `VPApp.*`).
+  - `App.kt` – prozessweite Teile (Engine, Vorleser, Server), damit das Vorlesen das Fenster überlebt.
+  - `MainActivity.kt` – WebView, Dateidialoge, „Öffnen mit“/„Teilen“, Tastatur, Benachrichtigungs-Erlaubnis.
+  - `Bridge.kt` – Schnittstelle zur Oberfläche (`VP.*` ↔ `VPApp.*`): die Seite liefert die Satzliste, die App meldet den Stand (`onState`).
+  - `Reader.kt` – der Vorleser: Satzfolge, Pause/Weiter an der Stelle, Sprünge, Vorausberechnung, Hörfokus, Wachhalten.
+  - `PlaybackService.kt` – Vordergrunddienst mit MediaSession: Benachrichtigung, Sperrbildschirm, Kopfhörertasten.
   - `Engine.kt` – Stimme laden, Audio erzeugen, Zwischenspeicher, Aussprachedaten bereitstellen.
-  - `Player.kt` – Wiedergabe über AudioTrack, Hörfokus.
+  - `Player.kt` – Wiedergabe über AudioTrack mit merkbarer Position.
   - `LocalServer.kt` – liefert die Oberfläche und Importdateien an den WebView.
   - `Store.kt` – Dokument und Einstellungen im App-Speicher.

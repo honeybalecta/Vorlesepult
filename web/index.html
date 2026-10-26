@@ -188,7 +188,7 @@ body.tucked .mini{display:inline-flex!important;background:var(--accent)!importa
     <div id="editor" contenteditable="true" spellcheck="true" lang="de" aria-label="Dokument"></div>
     <div class="drop" id="drop" hidden>Datei hier ablegen</div>
   </div>
-  <div class="meta"><span id="stats">–</span><span class="kbd hide-sm">Tipp in den Text: dort weiterlesen · Zurück-Taste: Pause</span></div>
+  <div class="meta"><span id="stats">–</span><span class="kbd hide-sm">Tipp in den Text: dort weiterlesen · läuft auch im Hintergrund weiter</span></div>
 </div>
 
 <div class="deck" aria-label="Vorlesen">
@@ -217,7 +217,7 @@ body.tucked .mini{display:inline-flex!important;background:var(--accent)!importa
       <div class="rate"><label for="rate">Tempo</label><input type="range" id="rate" min="0.6" max="2" step="0.05" value="1"><span id="rateOut">1,00×</span></div>
     </div>
     <div class="hint" id="hint" hidden>
-      <b>Eingebaute Stimmen:</b> Alle Stimmen laufen direkt in der App, ohne Internet und ohne Konto. Die erste Verwendung einer Stimme dauert ein paar Sekunden, danach antwortet sie sofort. Bei Stimmen mit mehreren Sprecher:innen wählst du die Variante unter „Variante“.
+      <b>Eingebaute Stimmen:</b> Alle Stimmen laufen direkt in der App, ohne Internet und ohne Konto. Die erste Verwendung einer Stimme dauert ein paar Sekunden, danach antwortet sie sofort. Bei Stimmen mit mehreren Sprecher:innen wählst du die Variante unter „Variante“. Das Vorlesen läuft auch im Hintergrund und bei gesperrtem Bildschirm weiter; gesteuert wird es dann über die Benachrichtigung (von oben herabwischen) oder die Kopfhörertasten.
       <ul id="voiceLicenses"></ul>
       <p>Technik: Piper-Stimmen (VITS) mit sherpa-onnx und espeak-ng. <button class="dlbtn" id="diagBtn" type="button">Diagnose kopieren</button></p>
     </div>
@@ -235,6 +235,7 @@ const SAMPLE=`<h1>Kurzanleitung</h1>
 <h2>Vorlesen</h2>
 <p>Tipp an eine beliebige Stelle im Text und drück unten auf Abspielen. Der Satz, der gerade gelesen wird, ist gelb markiert. Du kannst jederzeit weiterschreiben, auch während vorgelesen wird.</p>
 <p>Mit den Pfeiltasten im Pult springst du satzweise vor oder zurück. Abkürzungen wie z. B. oder Daten wie der 3. Oktober werden nicht als Satzende behandelt.</p>
+<p>Das Vorlesen läuft auch weiter, wenn du die App verlässt oder den Bildschirm sperrst. Pause, Weiter und Satzsprünge findest du dann in der Benachrichtigung, wenn du von oben herabwischst, und auf dem Sperrbildschirm.</p>
 <h2>Bearbeiten und exportieren</h2>
 <ul><li>Überschriften, <strong>fett</strong>, <em>kursiv</em> und Listen setzt du in der Leiste oben.</li><li>Über „Exportieren“ speicherst du das Ergebnis als Word, PDF, Markdown, HTML oder Text.</li></ul>
 <blockquote>Tipp: Unter „Stimme“ (Regler-Symbol im Pult) wählst du eine der eingebauten Stimmen. Alle laufen offline direkt in der App.</blockquote>`;
@@ -248,7 +249,7 @@ const saved=store.get('vp.doc');
 ed.innerHTML=saved||SAMPLE;
 const savedName=store.get('vp.name'); if(savedName) $('#docname').value=savedName;
 let saveT;
-function persist(){clearTimeout(saveT);saveT=setTimeout(()=>{store.set('vp.doc',ed.innerHTML);store.set('vp.name',$('#docname').value)},400)}
+function persist(){clearTimeout(saveT);saveT=setTimeout(()=>{store.set('vp.doc',ed.innerHTML);store.set('vp.name',$('#docname').value);if(window.VP)try{VP.setTitle($('#docname').value.trim()||'Vorlesepult')}catch(e){}},400)}
 $('#docname').addEventListener('input',persist);
 
 /* ---------- Hilfen ---------- */
@@ -389,7 +390,7 @@ function replaceAll(html){
   const sel=getSelection(),c=document.createRange();c.setStart(ed,0);c.collapse(true);sel.removeAllRanges();sel.addRange(c);
   if(document.activeElement===ed)ed.blur();
   window.scrollTo({top:0});
-  pointer=null;current=null;userCaret=false;updateStats();
+  sentences=[];cur=-1;curRange=null;userCaret=false;updateStats();
 }
 $('#openBtn').onclick=()=>{if(window.VP)VP.pick();else $('#fileIn').click()};
 $('#fileIn').onchange=e=>{const f=e.target.files[0];if(f)importFile(f);e.target.value=''};
@@ -477,15 +478,6 @@ function normalizeTTS(t){
   for(const [re,rep] of EXPAND)t=t.replace(re,rep);
   return t.replace(/\s+/g,' ').trim();
 }
-function chunks(t){
-  if(t.length<=220)return[t];
-  const parts=[];let rest=t;
-  while(rest.length>220){
-    let cut=-1;for(const re of [/[;:]\s/g,/,\s/g,/\s[–-]\s/g,/\s/g]){let m,best=-1;re.lastIndex=0;while((m=re.exec(rest))&&m.index<220)best=m.index+1;if(best>60){cut=best;break}}
-    if(cut<0)cut=220;parts.push(rest.slice(0,cut).trim());rest=rest.slice(cut);
-  }
-  if(rest.trim())parts.push(rest.trim());return parts;
-}
 
 /* ---------- Eingebaute Stimmen (laufen in der App, offline) ---------- */
 const NATIVE=!!window.VP;
@@ -544,11 +536,10 @@ function selectVoice(){
   voiceLoading=v.id;showLoading(v.name);VP.select(v.id);
 }
 voiceSel.onchange=()=>{
-  store.set('vp.voice3',voiceSel.value);buildSpeakerUi();updateChip();selectVoice();
-  if(state==='playing')restart();
+  store.set('vp.voice3',voiceSel.value);buildSpeakerUi();updateChip();selectVoice();pushVoice();
 };
-spkSel.onchange=()=>{const v=currentVoice();if(v)store.set('vp.sid.'+v.id,spkSel.value);if(state==='playing')restart()};
-spkNum.onchange=()=>{const v=currentVoice();if(!v)return;const n=Math.min(v.numSpeakers,Math.max(1,Math.round(+spkNum.value||1)));spkNum.value=n;store.set('vp.sid.'+v.id,String(n));if(state==='playing')restart()};
+spkSel.onchange=()=>{const v=currentVoice();if(v)store.set('vp.sid.'+v.id,spkSel.value);pushVoice()};
+spkNum.onchange=()=>{const v=currentVoice();if(!v)return;const n=Math.min(v.numSpeakers,Math.max(1,Math.round(+spkNum.value||1)));spkNum.value=n;store.set('vp.sid.'+v.id,String(n));pushVoice()};
 $('#spkPrev').onclick=()=>{spkNum.value=Math.max(1,(+spkNum.value||1)-1);spkNum.onchange()};
 $('#spkNext').onclick=()=>{spkNum.value=(+spkNum.value||1)+1;spkNum.onchange()};
 $('#voiceChip').onclick=()=>{$('#hint').hidden=!$('#hint').hidden};
@@ -559,11 +550,11 @@ const fmtRate=v=>(+v).toFixed(2).replace('.',',')+'×';
 const savedRate=store.get('vp.rate');if(savedRate)rateEl.value=savedRate;
 $('#rateOut').textContent=fmtRate(rateEl.value);
 rateEl.oninput=()=>{$('#rateOut').textContent=fmtRate(rateEl.value);store.set('vp.rate',rateEl.value);updateStats()};
-rateEl.onchange=()=>{if(state==='playing')restart()};
+rateEl.onchange=()=>pushVoice();
 $('#gearBtn').onclick=()=>{const d=document.querySelector('.deck');d.classList.toggle('open');$('#gearBtn').setAttribute('aria-expanded',String(d.classList.contains('open')))};
 
-/* ---------- Vorlesen ---------- */
-let state='idle',pointer=null,current=null,token=0,userCaret=false,awake=false;
+/* ---------- Vorlesen: die App liest (auch im Hintergrund), die Seite liefert die Sätze und zeigt den Stand ---------- */
+let state='idle',cur=-1,curRange=null,sentences=[],qv=0,userCaret=false,awake=false,ended=false,prepT=null;
 const hasHL=!!(window.CSS&&CSS.highlights&&window.Highlight);
 function highlight(r){
   if(hasHL){if(r)CSS.highlights.set('vorlesen',new Highlight(r));else CSS.highlights.delete('vorlesen');return}
@@ -582,114 +573,121 @@ function scrollToRange(r){
   }
 }
 function setNow(label,text){$('#now').innerHTML='<b>'+esc(label)+'</b>'+esc(text||'')}
+const busy=()=>state==='playing'||state==='loading';
 function setPlayIcon(){
-  const ico=state==='playing'?'<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>':'<path d="M7 4v16l13-8z"/>';
+  const playing=busy();
+  const ico=playing?'<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>':'<path d="M7 4v16l13-8z"/>';
   $('#playIco').innerHTML=ico;$('#miniIco').innerHTML=ico;
-  const l=state==='playing'?'Pause':'Vorlesen';
+  const l=playing?'Pause':'Vorlesen';
   $('#playBtn').setAttribute('aria-label',l);$('#playBtn').title=l;$('#miniPlay').setAttribute('aria-label',l);
-  const want=state==='playing';
-  if(NATIVE&&want!==awake){awake=want;try{VP.keepAwake(want)}catch(e){}}
+  if(NATIVE&&playing!==awake){awake=playing;try{VP.keepAwake(playing)}catch(e){}}
 }
 const blockOf=n=>{let e=n.nodeType===1?n:n.parentElement;return e?e.closest(BLOCK_SEL):null};
-function findFrom(pt){const list=allSentences();return{list,i:list.findIndex(s=>cmpPoint(pt.startContainer,pt.startOffset,s.range.endContainer,s.range.endOffset)<0)}}
-function advanceAfter(s){pointer=document.createRange();pointer.setStart(s.range.endContainer,s.range.endOffset)}
-let waitT=null;
-function speakNext(){
-  if(state!=='playing')return;
-  if(!pointer||!ed.contains(pointer.startContainer)){pointer=document.createRange();pointer.setStart(ed,0)}
-  const {list,i}=findFrom(pointer);
-  if(i<0){finish();return}
-  const s=list[i];current=s;
+function refresh(){sentences=allSentences();return sentences}
+// erster Satz, dessen Ende hinter dem Punkt liegt – also der Satz, in dem der Punkt steht
+function indexAt(node,off,list){return list.findIndex(s=>cmpPoint(node,off,s.range.endContainer,s.range.endOffset)<0)}
+function caretIndex(list){ // Satz, in dem der Cursor steht; steht er genau am Satzende, zählt noch dieser Satz
+  const s=getSelection();
+  if(s.rangeCount&&ed.contains(s.anchorNode)){const r=s.getRangeAt(0);const i=list.findIndex(x=>cmpPoint(r.startContainer,r.startOffset,x.range.endContainer,x.range.endOffset)<=0);return i<0?list.length-1:i}
+  return -1;
+}
+// Satzliste für die App: Text für die Sprachausgabe und Pause danach (länger an Absatzgrenzen)
+function queueJson(list){return JSON.stringify(list.map((s,i)=>{const n=list[i+1];return{t:normalizeTTS(s.text),g:n&&blockOf(n.range.startContainer)!==blockOf(s.range.endContainer)?420:160}}))}
+function docTitle(){return $('#docname').value.trim()||'Vorlesepult'}
+function pushVoice(){const v=currentVoice();if(v&&NATIVE)try{VP.setVoice(v.id,currentSid(),+rateEl.value)}catch(e){}}
+function idleText(){setNow(ended?'Fertig':'Bereit',ended?'Ende des Dokuments erreicht.':'Tipp in den Text und starte – gelesen wird ab dieser Stelle.')}
+function showCurrent(){
+  const s=sentences[cur];
+  clearTimeout(prepT);
+  if(!s){highlight(null);setNow(state==='paused'?'Pause':'Liest','Satz '+(cur+1));return}
   highlight(s.range);scrollToRange(s.range);
-  const label='Satz '+(i+1)+' / '+list.length;
-  setNow(label,s.text);
-  const my=++token;
-  if(!NATIVE){state='paused';setPlayIcon();toast('Die Sprachausgabe steht nur in der App zur Verfügung.',5000);return}
-  const v=currentVoice();if(!v){state='paused';setPlayIcon();toast('Keine Stimme eingebaut.',5000);return}
-  const sid=currentSid(),speed=+rateEl.value;
-  clearTimeout(waitT);waitT=setTimeout(()=>{if(my===token&&state==='playing')setNow('Bereite vor',s.text)},600);
-  VP.speak(String(my),v.id,sid,speed,normalizeTTS(s.text));
-  for(let k=1;k<=2;k++){const n=list[i+k];if(n)VP.prefetch(v.id,sid,speed,normalizeTTS(n.text))}
-  s._label=label;
+  if(state==='paused'){setNow('Pause',s.text);return}
+  setNow('Satz '+(cur+1)+' / '+sentences.length,s.text);
+  if(state==='loading')prepT=setTimeout(()=>{if(state==='loading')setNow('Bereite vor',s.text)},600);
+}
+function applyState(st){
+  state=st.state;ended=!!st.ended;setPlayIcon();
+  if(state==='idle'){cur=-1;curRange=null;highlight(null);clearTimeout(prepT);idleText();return}
+  if(st.version!==qv){ // Seite neu geladen: Satzliste wiederherstellen, wenn sie zum Dokument passt
+    const list=refresh();
+    if(list.length===st.total)qv=st.version;
+    else{cur=-1;curRange=null;highlight(null);clearTimeout(prepT);setNow(state==='paused'?'Pause':'Liest','Satz '+(st.index+1)+' / '+st.total);return}
+  }
+  cur=st.index;curRange=sentences[cur]?sentences[cur].range:null;
+  showCurrent();
+}
+function play(){
+  if(!NATIVE){toast('Die Sprachausgabe steht nur in der App zur Verfügung.',5000);return}
+  if(!currentVoice()){toast('Keine Stimme eingebaut.',5000);return}
+  if(document.activeElement&&ed.contains(document.activeElement))ed.blur(); // Tastatur weg, Pult zurück
+  const list=refresh();
+  let i=-1;
+  if(userCaret){i=caretIndex(list);userCaret=false}
+  selectVoice();pushVoice();
+  if(i<0&&state==='paused'){VP.resume();return}
+  if(!list.length){toast('Kein Text zum Vorlesen.');return}
+  if(i<0||i>=list.length)i=0;
+  VP.play(queueJson(list),i,docTitle(),++qv);
+}
+function pause(){if(NATIVE)try{VP.pause()}catch(e){}}
+function stopReading(reset){
+  if(NATIVE)try{VP.stop()}catch(e){}
+  state='idle';cur=-1;curRange=null;ended=false;highlight(null);setPlayIcon();clearTimeout(prepT);
+  if(reset)userCaret=false;
+  idleText();
+}
+function step(dir){
+  if(!NATIVE)return;
+  if(state!=='idle'){try{if(dir>0)VP.next();else VP.prev()}catch(e){}return}
+  const list=refresh();if(!list.length)return;
+  let i=userCaret?caretIndex(list):-1;userCaret=false;if(i<0)i=0;
+  pushVoice();VP.prepare(queueJson(list),i,docTitle(),++qv);
+}
+let editT=null;
+function edited(){ // Text geändert: Satzliste nachführen; der laufende Satz wird dabei nicht unterbrochen
+  clearTimeout(editT);
+  editT=setTimeout(()=>{
+    if(state==='idle'||!NATIVE)return;
+    const list=refresh();
+    if(!list.length){stopReading(true);return}
+    let i=-1;
+    if(curRange)try{i=indexAt(curRange.startContainer,curRange.startOffset,list)}catch(e){i=-1}
+    if(i<0)i=Math.max(0,Math.min(cur,list.length-1));
+    try{VP.setQueue(queueJson(list),i,++qv)}catch(e){}
+  },350);
 }
 window.VPApp={
-  onSpeakStart(id,sec){if(+id!==token||state!=='playing')return;clearTimeout(waitT);if(current)setNow(current._label||'Satz',current.text)},
-  onSpeakDone(id){
-    if(+id!==token||state!=='playing')return;
-    const s=current;if(!s)return;
-    const {list,i}=findFrom(pointer||s.range);
-    const nb=list[i+1];
-    const gap=nb&&blockOf(nb.range.startContainer)!==blockOf(s.range.endContainer)?420:160;
-    advanceAfter(s);
-    setTimeout(()=>{if(+id===token&&state==='playing')speakNext()},gap);
-  },
-  onSpeakStopped(id){if(+id!==token||state!=='playing')return;clearTimeout(waitT);state='paused';setPlayIcon();if(current)setNow('Pause',current.text);toast('Die Wiedergabe wurde unterbrochen.',4000)},
-  onSpeakError(id,msg){if(+id!==token)return;clearTimeout(waitT);state='paused';setPlayIcon();if(current)setNow('Pause',current.text);toast('Vorlesen fehlgeschlagen: '+msg,6000)},
+  onState(st){try{applyState(typeof st==='string'?JSON.parse(st):st)}catch(e){console.error(e)}},
+  onReaderError(msg){toast('Vorlesen fehlgeschlagen: '+msg,6000)},
   onVoiceLoading(id){},
   onVoiceReady(id){voiceLoading=null;voiceReady=id;showLoading(null);updateChip()},
-  onVoiceError(id,msg){voiceLoading=null;showLoading(null);updateChip();if(state==='playing'){state='paused';setPlayIcon()}toast('Stimme konnte nicht geladen werden: '+msg,6000)},
-  onInterrupted(){if(state==='playing')pause()},
+  onVoiceError(id,msg){voiceLoading=null;showLoading(null);updateChip();toast('Stimme konnte nicht geladen werden: '+msg,6000)},
   onKeyboard(v){kbNative=!!v;updateTuck()},
   onSaved(ok,name,msg){toast(ok?'„'+name+'“ gespeichert.':(msg||'Speichern abgebrochen.'),ok?2600:4000)},
   importUrl(url,name,mime){fetch(url).then(r=>{if(!r.ok)throw new Error('Datei nicht erreichbar');return r.blob()}).then(b=>importFile(new File([b],name,{type:mime||b.type}))).catch(e=>toast('Öffnen fehlgeschlagen: '+e.message,6000))},
   importText(text,subject){stopReading(true);replaceAll(textToHtml(text));if(subject)$('#docname').value=subject.slice(0,120);persist();toast('Text übernommen.')},
   toast(msg){toast(msg,5000)},
-  onBack(){
+  onBack(){ // Menüs schließen; sonst darf die App in den Hintergrund, das Vorlesen läuft dort weiter
     const menu=$('#exportMenu');if(!menu.hidden){menu.hidden=true;return true}
     if(!$('#hint').hidden){$('#hint').hidden=true;return true}
     const d=document.querySelector('.deck');if(d.classList.contains('open')){d.classList.remove('open');return true}
-    if(state==='playing'){pause();return true}
     return false;
   }
 };
-function startPointerFromSelection(){
-  const s=getSelection();
-  if(s.rangeCount&&ed.contains(s.anchorNode)){const r=s.getRangeAt(0);pointer=document.createRange();pointer.setStart(r.startContainer,r.startOffset);return true}
-  return false;
-}
-function play(){
-  if(userCaret){startPointerFromSelection();userCaret=false}
-  else if(state==='paused'&&current){pointer=document.createRange();pointer.setStart(current.range.startContainer,current.range.startOffset)}
-  else if(!pointer){pointer=document.createRange();pointer.setStart(ed,0)}
-  if(document.activeElement&&ed.contains(document.activeElement))ed.blur(); // Tastatur weg, Pult zurück
-  state='playing';setPlayIcon();
-  token++;selectVoice();
-  setTimeout(speakNext,60);
-}
-function halt(){token++;clearTimeout(waitT);if(NATIVE)try{VP.stop()}catch(e){}}
-function pause(){
-  state='paused';halt();setPlayIcon();
-  if(current)setNow('Pause',current.text);
-}
-function stopReading(reset){
-  state='idle';halt();highlight(null);setPlayIcon();
-  current=null;if(reset)pointer=null;setNow('Bereit','Tipp in den Text und starte – gelesen wird ab dieser Stelle.');
-}
-function finish(){stopReading(true);setNow('Fertig','Ende des Dokuments erreicht.')}
-function restart(){halt();if(current){pointer=document.createRange();pointer.setStart(current.range.startContainer,current.range.startOffset)}setTimeout(speakNext,80)}
-function step(dir){
-  const base=current?current.range:null;const list=allSentences();if(!list.length)return;
-  let i;
-  if(base)i=list.findIndex(s=>s.range.compareBoundaryPoints(Range.START_TO_START,base)===0);
-  else{if(userCaret){startPointerFromSelection();userCaret=false}if(!pointer){pointer=document.createRange();pointer.setStart(ed,0)}i=findFrom(pointer).i}
-  if(i<0)i=0;
-  i=Math.max(0,Math.min(list.length-1,i+(base?dir:0)));
-  const s=list[i];pointer=document.createRange();pointer.setStart(s.range.startContainer,s.range.startOffset);
-  if(state==='playing'){current=s;halt();setTimeout(speakNext,80)}
-  else{current=s;highlight(s.range);scrollToRange(s.range);state='paused';setNow('Satz '+(i+1)+' / '+list.length,s.text)}
-}
 
-const toggle=()=>state==='playing'?pause():play();
+const toggle=()=>busy()?pause():play();
 $('#playBtn').onclick=toggle;
 $('#miniPlay').addEventListener('mousedown',e=>e.preventDefault());
 $('#miniPlay').onclick=toggle;
 $('#prevBtn').onclick=()=>step(-1);
 $('#nextBtn').onclick=()=>step(1);
-$('#stopBtn').onclick=()=>{stopReading(true);userCaret=false};
+$('#stopBtn').onclick=()=>stopReading(true);
 document.addEventListener('keydown',e=>{
   if((e.ctrlKey||e.metaKey)&&e.code==='Space'){e.preventDefault();toggle()}
-  else if(e.key==='Escape'&&state!=='idle'){pause()}
+  else if(e.key==='Escape'&&busy()){pause()}
 });
+// Stand der App übernehmen (z. B. nach dem Neuladen der Seite, während im Hintergrund gelesen wird)
+if(NATIVE){pushVoice();try{applyState(JSON.parse(VP.state()))}catch(e){}}
 
 /* ---------- Bedienleiste weicht der Bildschirmtastatur ---------- */
 const coarse=matchMedia('(pointer: coarse)').matches;
@@ -713,8 +711,7 @@ ed.addEventListener('mousedown',()=>selFromUser=true);ed.addEventListener('touch
 document.addEventListener('selectionchange',()=>{const s=getSelection();if(selFromUser&&s.rangeCount&&ed.contains(s.anchorNode)){userCaret=true}syncBlockSel()});
 document.addEventListener('mouseup',()=>setTimeout(()=>selFromUser=false,0));
 document.addEventListener('touchend',()=>setTimeout(()=>selFromUser=false,300));
-ed.addEventListener('input',()=>{updateStats();persist()});
-window.addEventListener('beforeunload',()=>halt());
+ed.addEventListener('input',()=>{updateStats();persist();edited()});
 
 /* ---------- Statistik ---------- */
 let stT;function updateStats(){clearTimeout(stT);stT=setTimeout(()=>{
