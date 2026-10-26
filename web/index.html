@@ -623,7 +623,7 @@ window.VPApp={
     advanceAfter(s);
     setTimeout(()=>{if(+id===token&&state==='playing')speakNext()},gap);
   },
-  onSpeakStopped(id){},
+  onSpeakStopped(id){if(+id!==token||state!=='playing')return;clearTimeout(waitT);state='paused';setPlayIcon();if(current)setNow('Pause',current.text);toast('Die Wiedergabe wurde unterbrochen.',4000)},
   onSpeakError(id,msg){if(+id!==token)return;clearTimeout(waitT);state='paused';setPlayIcon();if(current)setNow('Pause',current.text);toast('Vorlesen fehlgeschlagen: '+msg,6000)},
   onVoiceLoading(id){},
   onVoiceReady(id){voiceLoading=null;voiceReady=id;showLoading(null);updateChip()},
