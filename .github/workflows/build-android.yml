@@ -71,6 +71,16 @@ jobs:
           du -sh android/app/src/main/assets/voices/* | sort -h | tee -a build.log
           python3 -c "import json; print('Stimmen:', ', '.join(v['name'] for v in json.load(open('android/app/src/main/assets/www/voices.json'))))" | tee -a build.log
 
+      - name: Jede Stimme einmal sprechen lassen (Linux-Fassung von sherpa-onnx)
+        run: |
+          set -o pipefail
+          mkdir -p ~/.cache/vorlesepult
+          T=~/.cache/vorlesepult/sherpa-linux-$SHERPA_VERSION.tar.bz2
+          [ -s "$T" ] || curl -L --fail --retry 3 -o "$T" \
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$SHERPA_VERSION/sherpa-onnx-v$SHERPA_VERSION-linux-x64-shared.tar.bz2"
+          mkdir -p "$RUNNER_TEMP/sherpa" && tar -xjf "$T" -C "$RUNNER_TEMP/sherpa" --strip-components=1
+          python3 android/tools/check-voices.py --assets android/app/src/main/assets --sherpa "$RUNNER_TEMP/sherpa" 2>&1 | tee -a build.log
+
       - name: Signaturschlüssel
         env:
           KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}

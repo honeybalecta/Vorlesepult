@@ -13,6 +13,9 @@ Ergebnis:
 """
 import argparse, io, json, os, shutil, sys, tarfile, urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import onnxmeta  # noqa: E402  (Metadaten für rohe Piper-Modelle, ohne Fremdbibliothek)
+
 SHERPA = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
 HF = "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
 
@@ -197,12 +200,17 @@ def main():
                     "model.onnx": shutil.copy(download(HF + base + ".onnx", os.path.join(a.cache, name + ".onnx")), os.path.join(outdir, "model.onnx")),
                     "model.onnx.json": shutil.copy(download(HF + base + ".onnx.json", os.path.join(a.cache, name + ".onnx.json")), os.path.join(outdir, "model.onnx.json")),
                 }
-                # tokens.txt aus der Modellbeschreibung ableiten (phoneme_id_map)
+                # tokens.txt aus der Modellbeschreibung ableiten (phoneme_id_map), wie sherpa-onnx/scripts/piper
                 j = json.load(open(files["model.onnx.json"], encoding="utf-8"))
                 with open(os.path.join(outdir, "tokens.txt"), "w", encoding="utf-8") as f:
                     for ph, ids in j["phoneme_id_map"].items():
-                        f.write(f"{ph} {ids[0]}\n")
+                        if ph == "\n":
+                            continue
+                        f.write(f"{ph} {ids[0] if isinstance(ids, list) else ids}\n")
                 files["tokens.txt"] = os.path.join(outdir, "tokens.txt")
+                # Rohe Piper-Modelle von Hugging Face tragen keine sherpa-Metadaten – ohne sie bricht die Engine ab
+                onnxmeta.set_metadata(files["model.onnx"], onnxmeta.piper_metadata(j))
+                log(f"  Metadaten gesetzt: {onnxmeta.read_metadata(files['model.onnx'])}")
         except Exception as e:
             if v.get("optional"):
                 log(f"  übersprungen: {e}")
@@ -210,6 +218,14 @@ def main():
                 continue
             raise
 
+        present = onnxmeta.read_metadata(files["model.onnx"])
+        if "sample_rate" not in present or "comment" not in present:
+            if "model.onnx.json" in files and v.get("frontend", "piper") == "piper":
+                j = json.load(open(files["model.onnx.json"], encoding="utf-8"))
+                onnxmeta.set_metadata(files["model.onnx"], onnxmeta.piper_metadata(j))
+                log(f"  Metadaten ergänzt: {onnxmeta.read_metadata(files['model.onnx'])}")
+            else:
+                raise RuntimeError(f"Modell {v['id']} ohne sherpa-Metadaten (sample_rate/comment)")
         meta = meta_from_json(files["model.onnx.json"]) if "model.onnx.json" in files else {}
         entry = dict(
             id=v["id"], name=v["name"], desc=v["desc"], group=v["group"],
