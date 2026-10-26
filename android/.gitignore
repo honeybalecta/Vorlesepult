@@ -1,0 +1,10 @@
+.gradle/
+build/
+app/build/
+app/libs/*.aar
+app/src/main/assets/voices/
+app/src/main/assets/www/
+local.properties
+.idea/
+*.iml
+.kotlin/

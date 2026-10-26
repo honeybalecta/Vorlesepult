@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Vorlesepult" parent="android:Theme.DeviceDefault.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/papier</item>
+        <item name="android:statusBarColor">@color/papier</item>
+        <item name="android:navigationBarColor">@color/papier</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

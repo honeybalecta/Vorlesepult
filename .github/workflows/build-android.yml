@@ -1,0 +1,146 @@
+name: Android-App bauen
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versionsnummer (leer = android/version.txt)"
+        required: false
+        default: ""
+      publish:
+        description: "Als Release veröffentlichen"
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+    paths: ["android/**", "web/**", ".github/workflows/build-android.yml"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-android
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        set: [komplett, kompakt]
+    env:
+      VP_VERSION_INPUT: ${{ github.event.inputs.version }}
+      VP_VERSION_CODE: ${{ github.run_number }}
+      VP_VOICE_SET: ${{ matrix.set }}
+      SHERPA_VERSION: "1.13.8"
+      PHONEMIZE_VERSION: "1.5.9"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        run: echo "VP_VERSION=${VP_VERSION_INPUT:-$(cat android/version.txt)}" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Sprach-Engine holen (sherpa-onnx, piper-phonemize)
+        run: |
+          mkdir -p android/app/libs
+          curl -L --fail --retry 3 -o "android/app/libs/sherpa-onnx-$SHERPA_VERSION.aar" \
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$SHERPA_VERSION/sherpa-onnx-$SHERPA_VERSION.aar"
+          curl -L --fail --retry 3 -o "android/app/libs/piper-phonemize-$PHONEMIZE_VERSION.aar" \
+            "https://github.com/csukuangfj/piper-phonemize/releases/download/v$PHONEMIZE_VERSION/piper-phonemize-$PHONEMIZE_VERSION.aar"
+          ls -la android/app/libs
+
+      - name: Stimmen zwischenspeichern
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/vorlesepult
+          key: voices-${{ matrix.set }}-${{ hashFiles('android/tools/fetch-voices.py') }}
+
+      - name: Stimmen und Bibliotheken einbauen (${{ matrix.set }})
+        run: |
+          python3 android/tools/fetch-voices.py --set "${{ matrix.set }}" \
+            --out android/app/src/main/assets --web web --cache ~/.cache/vorlesepult
+          du -sh android/app/src/main/assets/voices/* | sort -h
+          cat android/app/src/main/assets/www/voices.json | python3 -c "import json,sys; print(', '.join(v['name'] for v in json.load(sys.stdin)))"
+
+      - name: Signaturschlüssel
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            {
+              echo "VP_KEYSTORE=$RUNNER_TEMP/release.jks"
+              echo "VP_KEYSTORE_PASSWORD=$KS_PW"
+              echo "VP_KEY_ALIAS=${KS_ALIAS:-vorlesepult}"
+            } >> "$GITHUB_ENV"
+            echo "Signiere mit dem Schlüssel aus den Repository-Secrets."
+          else
+            echo "::warning::Kein Signaturschlüssel hinterlegt (Secrets ANDROID_KEYSTORE_B64 und ANDROID_KEYSTORE_PASSWORD) – Testbuild mit Debug-Signatur. Vor einem späteren Update mit echtem Schlüssel muss die App einmal deinstalliert werden."
+          fi
+
+      - name: APK bauen
+        run: |
+          set -o pipefail
+          gradle -p android --no-daemon --console=plain assembleRelease 2>&1 | tee build.log
+
+      - name: Build-Log im Zweig ci-log-${{ matrix.set }} ablegen
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/cilog" && cd "$RUNNER_TEMP/cilog"
+          git init -q && git checkout -q -b "ci-log-${{ matrix.set }}"
+          {
+            echo "# Build ${{ github.run_number }} · ${{ matrix.set }} · ${{ job.status }} · $(date -u +%FT%TZ)"
+            echo "Commit: ${{ github.sha }}"
+            echo
+            echo '```'
+            grep -E "^e: |error:|ERROR|FAILURE|What went wrong|Could not|Execution failed|Exception" "$GITHUB_WORKSPACE/build.log" | grep -v "^> Task" | head -80 || true
+            echo "----- letzte Zeilen -----"
+            tail -60 "$GITHUB_WORKSPACE/build.log" || true
+            echo '```'
+          } > build.md
+          git add build.md
+          git -c user.name="ci" -c user.email="ci@users.noreply.github.com" commit -qm "Build-Log ${{ github.run_number }}"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}" "ci-log-${{ matrix.set }}"
+
+      - name: APK bereitstellen
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/*.apk "out/Vorlesepult-${{ matrix.set }}-$VP_VERSION.apk"
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Vorlesepult-${{ matrix.set }}
+          path: out/*.apk
+          compression-level: 0
+
+      - name: Als Release veröffentlichen
+        if: github.event_name == 'push' || github.event.inputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v$VP_VERSION"
+          NOTES="APK für Android 10 und neuer (ARM64). **komplett** = alle eingebauten Stimmen, **kompakt** = Thorsten, Kerstin, Karlsson und Eva."
+          for i in 1 2 3; do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release upload "$TAG" out/*.apk --clobber && break
+            else
+              gh release create "$TAG" out/*.apk --title "Vorlesepult $VP_VERSION" --notes "$NOTES" && break
+            fi
+            sleep 10
+          done
