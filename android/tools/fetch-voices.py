@@ -48,15 +48,6 @@ VOICES = [
     dict(id="css10", name="CSS10 (Coqui)", desc="weiblich, Hörbuch", group="Deutsch",
          pkg="vits-coqui-de-css10", sets=("komplett",), frontend="chars", lang="de", sampleRate=22050,
          license="CSS10-Datensatz", source="https://github.com/Kyubyong/css10"),
-    dict(id="lessac", name="Lessac", desc="Englisch (US), weiblich", group="Englisch",
-         pkg="vits-piper-en_US-lessac-medium", sets=("komplett",),
-         license="Blizzard 2013", source="https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_US/lessac"),
-    dict(id="alan", name="Alan", desc="Englisch (GB), männlich", group="Englisch",
-         pkg="vits-piper-en_GB-alan-medium", sets=("komplett",),
-         license="siehe Modellkarte", source="https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_GB/alan"),
-    dict(id="libritts", name="LibriTTS-Sprecher:innen", desc="Englisch (US), 904 Stimmen", group="Englisch",
-         pkg="vits-piper-en_US-libritts_r-medium", sets=("komplett",),
-         license="CC BY 4.0", source="https://www.openslr.org/141/"),
 ]
 
 LIBS = {

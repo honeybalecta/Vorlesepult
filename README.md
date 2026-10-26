@@ -13,7 +13,7 @@ Alle Stimmen sind Piper-Stimmen (VITS), ausgeführt mit [sherpa-onnx](https://gi
 
 | APK | Stimmen |
 |---|---|
-| **komplett** | Deutsch: Thorsten, Thorsten Stimmungen (8 Varianten), Kerstin, Karlsson, Eva, Ramona, Pavoque, MLS (236 Sprecher:innen), CSS10 · Englisch: Lessac, Alan, LibriTTS (904 Sprecher:innen) |
+| **komplett** | Thorsten, Thorsten Stimmungen (8 Varianten), Kerstin, Karlsson, Eva, Ramona, Pavoque, MLS (236 Sprecher:innen), CSS10 |
 | **kompakt** | Thorsten, Kerstin, Karlsson, Eva |
 
 ## Installation
@@ -22,7 +22,7 @@ Alle Stimmen sind Piper-Stimmen (VITS), ausgeführt mit [sherpa-onnx](https://gi
 2. Die Datei öffnen und die Installation aus dieser Quelle erlauben.
 3. Android 10 oder neuer, 64-Bit (ARM64).
 
-Die komplette Fassung ist rund 800 MB groß, die kompakte rund 240 MB.
+Alle Stimmen sind deutsch. Die komplette Fassung ist rund 600 MB groß, die kompakte rund 250 MB.
 
 ## Bauen
 
