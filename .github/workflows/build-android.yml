@@ -68,10 +68,11 @@ jobs:
 
       - name: Stimmen und Bibliotheken einbauen (${{ matrix.set }})
         run: |
+          set -o pipefail
           python3 android/tools/fetch-voices.py --set "${{ matrix.set }}" \
-            --out android/app/src/main/assets --web web --cache ~/.cache/vorlesepult
-          du -sh android/app/src/main/assets/voices/* | sort -h
-          cat android/app/src/main/assets/www/voices.json | python3 -c "import json,sys; print(', '.join(v['name'] for v in json.load(sys.stdin)))"
+            --out android/app/src/main/assets --web web --cache ~/.cache/vorlesepult 2>&1 | grep -v "^  lade" | tee build.log
+          du -sh android/app/src/main/assets/voices/* | sort -h | tee -a build.log
+          python3 -c "import json; print('Stimmen:', ', '.join(v['name'] for v in json.load(open('android/app/src/main/assets/www/voices.json'))))" | tee -a build.log
 
       - name: Signaturschlüssel
         env:
@@ -94,7 +95,7 @@ jobs:
       - name: APK bauen
         run: |
           set -o pipefail
-          gradle -p android --no-daemon --console=plain assembleRelease 2>&1 | tee build.log
+          gradle -p android --no-daemon --console=plain assembleRelease 2>&1 | tee -a build.log
 
       - name: Build-Log im Zweig ci-log-${{ matrix.set }} ablegen
         if: always()
