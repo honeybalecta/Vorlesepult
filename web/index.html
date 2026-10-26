@@ -596,16 +596,17 @@ function queueJson(list){return JSON.stringify(list.map((s,i)=>{const n=list[i+1
 function docTitle(){return $('#docname').value.trim()||'Vorlesepult'}
 function pushVoice(){const v=currentVoice();if(v&&NATIVE)try{VP.setVoice(v.id,currentSid(),+rateEl.value)}catch(e){}}
 function idleText(){setNow(ended?'Fertig':'Bereit',ended?'Ende des Dokuments erreicht.':'Tipp in den Text und starte – gelesen wird ab dieser Stelle.')}
-function showCurrent(){
+function showCurrent(scroll){
   const s=sentences[cur];
   clearTimeout(prepT);
   if(!s){highlight(null);setNow(state==='paused'?'Pause':'Liest','Satz '+(cur+1));return}
-  highlight(s.range);scrollToRange(s.range);
+  highlight(s.range);if(scroll&&!editing())scrollToRange(s.range); // beim Schreiben nicht wegscrollen
   if(state==='paused'){setNow('Pause',s.text);return}
   setNow('Satz '+(cur+1)+' / '+sentences.length,s.text);
   if(state==='loading')prepT=setTimeout(()=>{if(state==='loading')setNow('Bereite vor',s.text)},600);
 }
 function applyState(st){
+  const prevState=state,prevCur=cur;
   state=st.state;ended=!!st.ended;setPlayIcon();
   if(state==='idle'){cur=-1;curRange=null;highlight(null);clearTimeout(prepT);idleText();return}
   if(st.version!==qv){ // Seite neu geladen: Satzliste wiederherstellen, wenn sie zum Dokument passt
@@ -614,7 +615,7 @@ function applyState(st){
     else{cur=-1;curRange=null;highlight(null);clearTimeout(prepT);setNow(state==='paused'?'Pause':'Liest','Satz '+(st.index+1)+' / '+st.total);return}
   }
   cur=st.index;curRange=sentences[cur]?sentences[cur].range:null;
-  showCurrent();
+  showCurrent(cur!==prevCur||prevState==='idle');
 }
 function play(){
   if(!NATIVE){toast('Die Sprachausgabe steht nur in der App zur Verfügung.',5000);return}

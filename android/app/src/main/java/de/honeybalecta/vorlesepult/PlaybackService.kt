@@ -38,6 +38,7 @@ class PlaybackService : Service(), Reader.Listener {
 
     private lateinit var reader: Reader
     private lateinit var session: MediaSession
+    private var foreground = false
     private var noisyRegistered = false
     private val noisy = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -75,15 +76,14 @@ class PlaybackService : Service(), Reader.Listener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Nach startForegroundService() zuerst in den Vordergrund, dann den Wunsch ausführen
-        foreground()
         when (intent?.action) {
             ACTION_TOGGLE -> reader.toggle()
             ACTION_NEXT -> reader.next()
             ACTION_PREV -> reader.prev()
             ACTION_STOP -> reader.stop()
         }
-        if (!reader.isActive) finish()
+        // Gibt es nichts zu lesen, endet der Dienst sofort wieder (auch das gilt nach startForegroundService als erledigt)
+        if (reader.isActive) foreground() else finish()
         return START_NOT_STICKY
     }
 
@@ -98,15 +98,22 @@ class PlaybackService : Service(), Reader.Listener {
         val st = reader.state
         updateSession(st)
         val notification = buildNotification(st)
-        runCatching {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
-        }.onFailure {
-            Log.w(TAG, "Vordergrund nicht möglich, zeige nur die Benachrichtigung", it)
+        if (!foreground) {
+            runCatching {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+                foreground = true
+            }.onFailure {
+                Log.w(TAG, "Vordergrund nicht möglich, zeige nur die Benachrichtigung", it)
+                runCatching { getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification) }
+            }
+        } else {
             runCatching { getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification) }
+                .onFailure { Log.w(TAG, "Benachrichtigung", it) }
         }
     }
 
     private fun finish() {
+        foreground = false
         runCatching { session.isActive = false }
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         runCatching { getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID) }
