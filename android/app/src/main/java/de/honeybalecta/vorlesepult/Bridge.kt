@@ -28,6 +28,9 @@ class Bridge(private val act: MainActivity, private val engine: Engine, private 
     }
     private fun q(s: String?) = JSONObject.quote(s ?: "")
 
+    /** Der WebView wurde neu aufgebaut: Seite gilt wieder als nicht bereit. */
+    fun pageGone() = main.post { pageReady = false; pending.clear() }
+
     // ── Seite ──
     @JavascriptInterface
     fun ready() = main.post {
@@ -44,6 +47,12 @@ class Bridge(private val act: MainActivity, private val engine: Engine, private 
         put("cores", Runtime.getRuntime().availableProcessors())
         put("voiceSet", act.voiceSet())
     }.toString()
+
+    // ── Diagnose ──
+    @JavascriptInterface fun lastCrash(): String = runCatching { Diagnostics.lastCrashSummary(act.applicationContext) }.getOrDefault("")
+    @JavascriptInterface fun diagnostics(): String = runCatching { Diagnostics.collect(act.applicationContext) }.getOrElse { "Diagnose fehlgeschlagen: $it" }
+    @JavascriptInterface fun clearCrash() = Diagnostics.clear(act.applicationContext)
+    @JavascriptInterface fun copy(text: String) = main.post { act.copyToClipboard(text) }
 
     // ── Speicher ──
     @JavascriptInterface fun load(key: String): String = store.get(key) ?: ""
@@ -77,6 +86,12 @@ class Bridge(private val act: MainActivity, private val engine: Engine, private 
      */
     @JavascriptInterface
     fun speak(req: String, voiceId: String, sid: Int, speed: Float, text: String) {
+        try { speakImpl(req, voiceId, sid, speed, text) } catch (e: Throwable) {
+            Log.e(TAG, "speak fehlgeschlagen", e); js("VPApp.onSpeakError(${q(req)}, ${q(e.toString())})")
+        }
+    }
+
+    private fun speakImpl(req: String, voiceId: String, sid: Int, speed: Float, text: String) {
         val my = speakSerial.incrementAndGet()
         val key = engine.cacheKey(voiceId, sid, speed, text)
         player.stop()
@@ -108,7 +123,9 @@ class Bridge(private val act: MainActivity, private val engine: Engine, private 
 
     /** Einen späteren Satz schon berechnen, damit er ohne Pause folgt. */
     @JavascriptInterface
-    fun prefetch(voiceId: String, sid: Int, speed: Float, text: String) {
+    fun prefetch(voiceId: String, sid: Int, speed: Float, text: String) = runCatching { prefetchImpl(voiceId, sid, speed, text) }.onFailure { Log.e(TAG, "prefetch fehlgeschlagen", it) }.let { }
+
+    private fun prefetchImpl(voiceId: String, sid: Int, speed: Float, text: String) {
         val key = engine.cacheKey(voiceId, sid, speed, text)
         if (engine.cached(key) != null) return
         val gen = engine.prefetchGen
@@ -124,9 +141,9 @@ class Bridge(private val act: MainActivity, private val engine: Engine, private 
     @JavascriptInterface
     fun stop() {
         speakSerial.incrementAndGet()
-        engine.cancelAll()
-        player.stop()
-        player.unfocus()
+        runCatching { engine.cancelAll() }
+        runCatching { player.stop() }
+        runCatching { player.unfocus() }.onFailure { Log.w(TAG, "unfocus", it) }
     }
 
     @JavascriptInterface

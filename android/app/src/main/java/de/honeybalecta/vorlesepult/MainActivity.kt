@@ -1,6 +1,9 @@
 package de.honeybalecta.vorlesepult
 
 import android.annotation.SuppressLint
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -8,6 +11,7 @@ import android.provider.OpenableColumns
 import android.util.Log
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -57,13 +61,14 @@ class MainActivity : ComponentActivity() {
     fun versionName(): String = runCatching { packageManager.getPackageInfo(packageName, 0).versionName ?: "" }.getOrDefault("")
     fun voiceSet(): String = versionName().substringAfter('-', "komplett")
 
+    private lateinit var root: FrameLayout
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val root = FrameLayout(this)
+        Diagnostics.install(applicationContext)
+        root = FrameLayout(this)
         root.setBackgroundColor(ContextCompat.getColor(this, R.color.papier))
-        web = WebView(this)
-        root.addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
         // Platz für Status- und Navigationsleiste lassen; Tastatur schiebt die Seite zusammen
         ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
@@ -75,6 +80,22 @@ class MainActivity : ComponentActivity() {
             WindowInsetsCompat.CONSUMED
         }
 
+        engine = Engine(applicationContext)
+        player = Player(applicationContext) { bridge.js("VPApp.onInterrupted()") }
+        bridge = Bridge(this, engine, player, Store(applicationContext))
+        server = LocalServer(applicationContext).start()
+        createWebView()
+        onBackPressedDispatcher.addCallback(this) {
+            web.evaluateJavascript("window.VPApp && VPApp.onBack()") { r -> if (r != "true") moveTaskToBack(true) }
+        }
+        handleIntent(intent)
+    }
+
+    /** WebView aufbauen; wird auch genutzt, wenn der Darstellungsprozess des WebView gestorben ist. */
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun createWebView() {
+        web = WebView(this)
+        root.addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         with(web.settings) {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -83,24 +104,33 @@ class MainActivity : ComponentActivity() {
             mediaPlaybackRequiresUserGesture = false
             textZoom = 100
         }
-        engine = Engine(applicationContext)
-        player = Player(applicationContext) { bridge.js("VPApp.onInterrupted()") }
-        bridge = Bridge(this, engine, player, Store(applicationContext))
         web.addJavascriptInterface(bridge, "VP")
         web.webChromeClient = WebChromeClient()
-        server = LocalServer(applicationContext).start()
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 if (request.url.host == "127.0.0.1") return false
                 runCatching { startActivity(Intent(Intent.ACTION_VIEW, request.url)) }
                 return true
             }
-        }
-        onBackPressedDispatcher.addCallback(this) {
-            web.evaluateJavascript("window.VPApp && VPApp.onBack()") { r -> if (r != "true") moveTaskToBack(true) }
+
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                // Ohne diese Behandlung würde Android die ganze App beenden
+                Log.e(TAG, "WebView-Prozess beendet (Absturz: ${detail.didCrash()}, Priorität ${detail.rendererPriorityAtExit()})")
+                Diagnostics.step(applicationContext, "WebView-Darstellungsprozess beendet (Absturz: ${detail.didCrash()})")
+                runCatching { root.removeView(view); view.destroy() }
+                bridge.pageGone()
+                createWebView()
+                return true
+            }
         }
         web.loadUrl(server.base + "index.html")
-        handleIntent(intent)
+    }
+
+    fun copyToClipboard(text: String) {
+        runCatching {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("Vorlesepult", text))
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

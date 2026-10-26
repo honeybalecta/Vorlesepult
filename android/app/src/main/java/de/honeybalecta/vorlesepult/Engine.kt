@@ -75,11 +75,13 @@ class Engine(private val ctx: Context) {
         tts?.let { runCatching { it.free() } }
         tts = null; current = null
         // Piper-Stimmen brauchen die Aussprachedaten von espeak-ng als echten Ordner im Dateisystem
+        Diagnostics.step(ctx, "Aussprachedaten für ${v.id} bereitstellen")
         val dataDir = if (v.frontend == "piper") ensureEspeakData() else ""
+        Diagnostics.step(ctx, "Stimme ${v.id} laden (Modell ${v.dir}/model.onnx, Daten $dataDir)")
         val cfg = OfflineTtsConfig(
             model = OfflineTtsModelConfig(
                 vits = OfflineTtsVitsModelConfig(model = "${v.dir}/model.onnx", tokens = "${v.dir}/tokens.txt", dataDir = dataDir),
-                numThreads = threads, debug = false, provider = "cpu",
+                numThreads = threads, debug = true, provider = "cpu", // debug: Konfiguration und Modelldaten ins Protokoll (Diagnose)
             ),
             maxNumSentences = 1,
         )
@@ -87,6 +89,7 @@ class Engine(private val ctx: Context) {
         val t = OfflineTts(assetManager = ctx.assets, config = cfg)
         Log.i(TAG, "Stimme ${v.id} geladen in ${System.currentTimeMillis() - t0} ms, ${t.numSpeakers()} Sprecher, ${t.sampleRate()} Hz")
         tts = t; current = v
+        Diagnostics.step(ctx, null)
         return v
     }
 
@@ -138,7 +141,9 @@ class Engine(private val ctx: Context) {
         val sidOk = sid.coerceIn(0, maxOf(0, t.numSpeakers() - 1))
         val gen = GenerationConfig(sid = sidOk, speed = speed.coerceIn(0.5f, 2.5f))
         val t0 = System.currentTimeMillis()
+        Diagnostics.step(ctx, "Satz erzeugen mit ${v.id} (Sprecher $sidOk, Tempo $speed): ${clean.take(120)}")
         val audio = t.generateWithConfigAndCallback(text = clean, config = gen) { _ -> if (cancelled()) 0 else 1 }
+        Diagnostics.step(ctx, null)
         if (cancelled()) { Log.i(TAG, "Berechnung abgebrochen"); return null }
         val out = Audio(normalize(audio.samples), audio.sampleRate)
         Log.i(TAG, "Satz (${clean.length} Zeichen) in ${System.currentTimeMillis() - t0} ms, ${"%.1f".format(out.seconds)} s Audio")

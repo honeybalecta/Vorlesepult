@@ -219,7 +219,7 @@ body.tucked .mini{display:inline-flex!important;background:var(--accent)!importa
     <div class="hint" id="hint" hidden>
       <b>Eingebaute Stimmen:</b> Alle Stimmen laufen direkt in der App, ohne Internet und ohne Konto. Die erste Verwendung einer Stimme dauert ein paar Sekunden, danach antwortet sie sofort. Bei Stimmen mit mehreren Sprecher:innen wählst du die Variante unter „Variante“.
       <ul id="voiceLicenses"></ul>
-      <p>Technik: Piper-Stimmen (VITS) mit sherpa-onnx und espeak-ng.</p>
+      <p>Technik: Piper-Stimmen (VITS) mit sherpa-onnx und espeak-ng. <button class="dlbtn" id="diagBtn" type="button">Diagnose kopieren</button></p>
     </div>
   </div>
 </div>
@@ -927,6 +927,21 @@ menu.querySelectorAll('button').forEach(b=>b.onclick=async()=>{
     else if(fmt==='pdf')await saveFile(base+'.pdf',await toPdf(m,title));
   }catch(err){console.error(err);toast('Export fehlgeschlagen: '+(err.message||err),6000)}
 });
+/* ---------- Diagnose nach einem Absturz ---------- */
+async function diagText(){return VP.diagnostics()}
+async function copyDiag(){try{VP.copy(await diagText());toast('Diagnose in die Zwischenablage kopiert – einfach in eine Nachricht einfügen.',4000)}catch(e){toast('Diagnose nicht verfügbar: '+e.message,5000)}}
+async function shareDiag(){try{VP.share('Vorlesepult-Diagnose.txt','text/plain',await toBase64(new Blob([await diagText()],{type:'text/plain'})))}catch(e){toast('Teilen nicht möglich: '+e.message,5000)}}
+if(NATIVE){
+  $('#diagBtn').onclick=copyDiag;
+  try{
+    const c=VP.lastCrash();
+    if(c){
+      notice('<b>Die App wurde beim letzten Mal unerwartet beendet.</b><br>'+esc(c).replace(/\n/g,'<br>')+'<div class="row" style="margin-top:8px"><button class="btn" id="diagCopy" type="button">Diagnose kopieren</button><button class="btn" id="diagShare" type="button">Diagnose teilen</button><button class="btn" id="diagHide" type="button">Ausblenden</button></div>');
+      $('#diagCopy').onclick=copyDiag;$('#diagShare').onclick=shareDiag;
+      $('#diagHide').onclick=()=>{try{VP.clearCrash()}catch(e){}notice('')};
+    }
+  }catch(e){}
+}
 if(window.VP){try{VP.ready()}catch(e){}}
 })();
 </script>
