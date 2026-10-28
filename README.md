@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="logo/wortmarke-auf-dunkel.svg">
+    <img src="logo/wortmarke-auf-hell.svg" width="320" alt="Vorlesepult">
+  </picture>
+</p>
+
 # Vorlesepult
 
 Android-App, die Texte, PDFs und Word-Dateien vorliest – mit natürlichen Stimmen, die komplett in der App stecken. Kein Internet, kein Konto, keine Abhängigkeit vom Browser.
@@ -32,6 +39,10 @@ Der Workflow `.github/workflows/build-android.yml` baut beide Fassungen bei jede
 - Die Sprach-Engine kommt als AAR aus dem GitHub-Release von sherpa-onnx.
 - Die Stimmen lädt `fetch-voices.py` aus den sherpa-onnx-Releases (MLS von Hugging Face) und legt sie unter `android/app/src/main/assets/voices/` ab.
 - Signiert wird mit dem Schlüssel aus den Repository-Secrets `ANDROID_KEYSTORE_B64` (Keystore als Base64), `ANDROID_KEYSTORE_PASSWORD` und optional `ANDROID_KEY_ALIAS` (Standard: `vorlesepult`). Ohne diese Secrets entsteht ein Testbuild mit Debug-Signatur. Updates lassen sich nur über eine bestehende Installation legen, wenn derselbe Schlüssel benutzt wird – sonst einmal deinstallieren.
+
+## Logo
+
+Im Ordner `logo/` liegen Bildmarke und Wortmarke (SVG mit Schrift als Pfaden, dazu PNG): geneigtes Blatt auf dem Pult, zwei rote Schallbögen. Farben: Anthrazit `#131312`, Creme `#EDE7DA`, Sand `#CFC6B0`, Rot `#E5402A` (auf hellem Grund `#B8301D`); Schrift Inter. Das App-Symbol (`ic_fg.xml`, `ic_mono.xml`) und das Symbol in der Statusleiste entstehen aus derselben Geometrie.
 
 ## Aufbau
 

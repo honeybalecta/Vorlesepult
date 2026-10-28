@@ -10,6 +10,7 @@ Ergebnis:
   assets/www/index.html            (Kopie aus web/)
   assets/www/voices.json           (Katalog für Oberfläche und Engine)
   assets/www/vendor/*.js           (pdf.js, mammoth, JSZip, jsPDF)
+  assets/www/fonts/*.woff          (Inter, Lora – Kopie aus web/fonts/)
 """
 import argparse, io, json, os, shutil, sys, tarfile, urllib.request
 
@@ -264,6 +265,9 @@ def main():
 
     src = os.path.join(a.web, "index.html")
     shutil.copy(src, os.path.join(www, "index.html"))
+    fonts = os.path.join(a.web, "fonts")
+    if os.path.isdir(fonts):
+        shutil.copytree(fonts, os.path.join(www, "fonts"), dirs_exist_ok=True)
     log(f"Fertig: {len(catalog)} Stimmen, {total / 1e6:.0f} MB Modelle, Satz „{a.set}“")
 
 

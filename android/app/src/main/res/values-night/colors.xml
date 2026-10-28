@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Hintergrund der Arbeitsfläche, passend zur Oberfläche (dunkel) -->
-    <color name="papier">#11151B</color>
+    <color name="papier">#131312</color>
 </resources>

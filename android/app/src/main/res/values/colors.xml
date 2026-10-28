@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Hintergrund der Arbeitsfläche, passend zur Oberfläche (hell) -->
-    <color name="papier">#EEF1F5</color>
-    <color name="honig">#E89B0C</color>
-    <color name="tinte">#1C1A22</color>
-    <color name="icon_bg">#FAF6EE</color>
+    <color name="papier">#EDE7DA</color>
+    <!-- Hintergrund des App-Symbols: Anthrazit aus der Standardpalette -->
+    <color name="icon_bg">#131312</color>
 </resources>

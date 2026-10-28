@@ -1,0 +1,2 @@
+Inter (Rasmus Andersson) und Lora (Cyreal) stehen unter der SIL Open Font License 1.1.
+Die Dateien hier sind auf den lateinischen Zeichenvorrat gekürzte WOFF-Fassungen für die Oberfläche der App.

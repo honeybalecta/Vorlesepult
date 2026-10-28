@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Statusleisten-Symbol: Blatt mit Zeilen und Schallwellen -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp" android:height="24dp"
-    android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFFFFFFF" android:pathData="M3,3h9l4,4v3h-2V8h-3V5H5v14h8v2H3z"/>
-    <path android:fillColor="#FFFFFFFF" android:pathData="M6,10h6v2H6zM6,14h5v2H6z"/>
-    <path android:fillColor="#FFFFFFFF" android:pathData="M16.6,12.6c1.2,1.2 1.2,3 0,4.2l1.4,1.4c2,-2 2,-5 0,-7zM19.4,9.8l-1.4,1.4c2.7,2.7 2.7,7 0,9.6l1.4,1.4c3.4,-3.4 3.4,-9 0,-12.4z"/>
+    android:width="24dp" android:height="24dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Statusleisten-Symbol: Bildmarke einfarbig -->
+    <group android:rotation="-8" android:pivotX="45" android:pivotY="69">
+        <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd" android:pathData="M32.5 27h25a3.5 3.5 0 0 1 3.5 3.5v35a3.5 3.5 0 0 1 -3.5 3.5h-25a3.5 3.5 0 0 1 -3.5 -3.5v-35a3.5 3.5 0 0 1 3.5 -3.5zM36 36.1h18a1.9 1.9 0 0 1 1.9 1.9v0a1.9 1.9 0 0 1 -1.9 1.9h-18a1.9 1.9 0 0 1 -1.9 -1.9v0a1.9 1.9 0 0 1 1.9 -1.9zM36 44.1h18a1.9 1.9 0 0 1 1.9 1.9v0a1.9 1.9 0 0 1 -1.9 1.9h-18a1.9 1.9 0 0 1 -1.9 -1.9v0a1.9 1.9 0 0 1 1.9 -1.9zM36 52.1h10a1.9 1.9 0 0 1 1.9 1.9v0a1.9 1.9 0 0 1 -1.9 1.9h-10a1.9 1.9 0 0 1 -1.9 -1.9v0a1.9 1.9 0 0 1 1.9 -1.9z"/>
+    </group>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M42,68h6v11h-6z"/>
+    <path android:fillColor="#FFFFFFFF" android:pathData="M34.5 78h21a2.5 2.5 0 0 1 2.5 2.5v0a2.5 2.5 0 0 1 -2.5 2.5h-21a2.5 2.5 0 0 1 -2.5 -2.5v0a2.5 2.5 0 0 1 2.5 -2.5z"/>
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="4" android:strokeLineCap="round" android:pathData="M68.79 38.11A9 9 0 0 1 68.79 51.89M73.28 32.74A16 16 0 0 1 73.28 57.26"/>
 </vector>
